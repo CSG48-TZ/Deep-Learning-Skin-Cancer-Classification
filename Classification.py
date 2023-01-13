@@ -42,33 +42,19 @@ train_generator, test_generator = train_val_generators(train_path, test_path,IMA
 train_img, train_label = train_generator.next()
 test_img, test_label = test_generator.next()
 print(type(train_img), train_img.shape, type(train_label), train_label.shape)
-# print(train_label[0])
+print(train_label[0])
 # plt.imshow(train_img[0])
 # plt.show()
-
-class_names = train_generator.class_indices
-NUMBER_OF_CLASSES = len(class_names)
-print(f'number of classes : {NUMBER_OF_CLASSES}')
+print(train_label)
+print(len(train_label))
 
 #--Segment
 import app
-print(train_img)
 for i in range(len(train_img)):
-    img = train_img[i] * 255
-    print(img)
-    train_img[i] = app.ycrcb_color_space_segmentation(img) * 1./255
-    print(train_img[i])
-
-print(train_img)
+    img = (train_img[i] * 255).astype(np.uint8)
+    train_img[i] = app.skin_detector_rgb(img) * (1. / 255)
 
 #--Start
-y_train = np.zeros(len(train_label))
-y_test = np.zeros(len(test_label))
-for i in range(len(train_label)):
-    y_train[i] = np.sum(train_label[i])
-for i in range(len(test_label)):
-    y_test[i] = np.sum(test_label[i])
-
 x_train = np.zeros((BATCH_SIZE, IMAGE_SIZE, IMAGE_SIZE))
 for i in range(len(train_img)):
     img = train_img[i]
@@ -88,18 +74,28 @@ x_train = x_train/x_train.max()
 # print('x_train shape= ', x_train.shape)
 x_train = x_train.reshape(BATCH_SIZE,IMAGE_SIZE,IMAGE_SIZE,1)
 # print('x_train re-shape= ', x_train.shape)
-
 # print('x_test shape= ', x_test.shape)
 x_test = x_test.reshape(BATCH_SIZE,IMAGE_SIZE,IMAGE_SIZE,1)
 # print('x_test re-shape= ', x_test.shape)
 
-#--convert y_train and y_test to be one-hot encoded for categorical analysis
-from keras.utils.np_utils import to_categorical
-y_cat_test = to_categorical(y_test,10)
+
+#--get y_train and y_test to be one-hot encoded for categorical analysis
+def index_of_value(np_2d):
+    output = []
+    for i in range(len(np_2d)):
+        for j in range(len(np_2d[i])):
+            if np_2d[i][j] == 1:
+                output.append(j)
+                break
+    output = np.array(output)
+    return output
+
+
+y_test = index_of_value(test_label)
+y_train = index_of_value(train_label)
+y_cat_test = test_label
 # print('y_cat_test shape= ', y_cat_test.shape)
-y_cat_train = to_categorical(y_train,10)
-# print('y_train[0]', y_train[0])
-# print('y_cat_train[0]', y_cat_train[0])
+y_cat_train = train_label
 
 #=================================
 #--- build the model
@@ -108,35 +104,64 @@ from keras.layers import Dense,Conv2D,MaxPool2D,Flatten
 
 model = Sequential()
 # Convolution layer
-model.add(Conv2D(filters=BATCH_SIZE, kernel_size=(3, 3), input_shape=(IMAGE_SIZE, IMAGE_SIZE, 1), activation='relu'))
+model.add(Conv2D(filters=BATCH_SIZE, kernel_size=(5, 5), input_shape=(IMAGE_SIZE, IMAGE_SIZE, 1), activation='relu'))
 # Pooling layer
 model.add(MaxPool2D(pool_size=(2,2)))
 model.add(Flatten())
 # dense layer
-model.add(Dense(128, activation='relu'))
+model.add(Dense(300, activation='relu'))
 # create the output layer
-model.add(Dense(10, activation='softmax'))
+model.add(Dense(23, activation='softmax'))
 # compile the model
 model.compile(loss='categorical_crossentropy', optimizer = 'rmsprop', metrics =['accuracy'])
 model.summary()
-
+"""
 #----visualize the model
 import visualkeras
 from PIL import ImageFont
 font = ImageFont.truetype("arial.ttf", 32)
 visualkeras.layered_view(model, legend=True, draw_volume=True, font=font, to_file='DL_layer_volume.png').show()
 visualkeras.layered_view(model, legend=True, draw_volume=False, font=font, to_file='DL_layer.png').show()
-
+"""
 #========================
 #----train and evaluate the model
 
 #----Train the model
-model.fit(x_train,y_cat_train,verbose=1,epochs=2) # train the model
-evalResults= model.evaluate(x_test,y_cat_test) # evaluate the model
-print(model.metrics_names,'=', evalResults)
+model.fit(x_train, y_cat_train, verbose=1, epochs=2) # train the model
+evalResults= model.evaluate(x_test, y_cat_test) # evaluate the model
+print(model.metrics_names, '=', evalResults)
 
 #---use the model on images not seen before
 from sklearn.metrics import classification_report
 predictions = model.predict(x_test) # results in y_test
 predicted_classes=np.argmax(predictions,axis=1)
 print(classification_report(y_test,predicted_classes))
+
+
+#---Print 5 images that is classified successfully
+import matplotlib.pyplot as plt
+
+No_Of_Rows = predictions.shape[0]
+
+Count_Dict = {}
+for i in range(10):
+    key = 'Count_' + str(i)
+    Count_Dict[key] = 0
+
+for Each_Row in range(0, 20, 4):
+    if np.argmax(predictions[Each_Row]) == y_test[Each_Row]:
+        Label = str(int(y_test[Each_Row]))
+        Count_Dict['Count_' + Label] = Count_Dict['Count_' + Label] + 1
+        Count_Of_Label = Count_Dict['Count_' + Label]
+        if Count_Of_Label <= 100:
+            plt.imshow(x_test[Each_Row].reshape(300, 300), cmap = 'Greys_r')
+            plt.show()
+            # save_fig(str(Count_Of_Label), Label)
+
+
+#---Print 5 images that is wrong predicted
+No_Of_Rows = predictions.shape[0]
+for Each_Row in range(No_Of_Rows):
+    if np.argmax(predictions[Each_Row]) != y_test[Each_Row]:
+        plt.imshow(x_test[Each_Row].reshape(300, 300), cmap = 'Greys_r')
+        plt.show()
